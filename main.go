@@ -9,6 +9,9 @@ import (
 	"github.com/diamondburned/arikawa/v2/discord"
 	"github.com/diamondburned/arikawa/v2/gateway"
 	"github.com/diamondburned/arikawa/v2/session"
+	"github.com/diamondburned/arikawa/v2/state"
+	"github.com/diamondburned/arikawa/v2/state/store"
+	"github.com/diamondburned/arikawa/v2/voice"
 )
 
 // To run, do `APP_ID="APP ID" GUILD_ID="GUILD ID" BOT_TOKEN="TOKEN HERE" go run .`
@@ -29,6 +32,9 @@ func main() {
 		return
 	}
 
+	state := state.NewFromSession(s, store.NoopCabinet)
+	v, err := voice.NewSession(state)
+
 	s.AddHandler(func(e *gateway.InteractionCreateEvent) {
 		data := api.InteractionResponse{
 			Type: api.MessageInteractionWithSource,
@@ -36,6 +42,8 @@ func main() {
 				Content: "Pong!",
 			},
 		}
+
+		v.JoinChannel(812408462382333953, 812408462382333957, false, true)
 
 		if err := s.RespondInteraction(e.ID, e.Token, data); err != nil {
 			log.Println("failed to send interaction callback:", err)
