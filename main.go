@@ -22,7 +22,8 @@ func init() {
 }
 
 var token string
-var buffer = make([][]byte, 0)
+var gongBuffer [][]byte
+var chimeBuffer [][]byte
 var dragoon = Dragoon{}
 
 func main() {
@@ -31,7 +32,10 @@ func main() {
 		return
 	}
 
-	err := loadSound()
+	buf, err := loadSound("gong.dca")
+	gongBuffer = buf
+	buf, err = loadSound("chime.dca")
+	chimeBuffer = buf
 	if err != nil {
 		fmt.Println("Error loading sound: ", err)
 		return
@@ -65,19 +69,6 @@ type Dragoon struct {
 	Timer           *time.Timer
 }
 
-func (d Dragoon) SetTimer(s *discordgo.Session, guildID, voiceChannelID string) {
-	d.StopTimer()
-	d.Timer = time.AfterFunc(5*time.Minute, func() {
-		playSound(s, guildID, voiceChannelID)
-	})
-}
-
-func (d Dragoon) StopTimer() {
-	if d.Timer != nil {
-		d.Timer.Stop()
-	}
-}
-
 func (d Dragoon) Exit() {
 	if d.VoiceConnection != nil {
 		d.VoiceConnection.Disconnect()
@@ -89,27 +80,29 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if strings.HasPrefix(m.Content, "!dra-stop") {
-		dragoon.StopTimer()
+	if strings.HasPrefix(m.Content, "!dra-exit") {
 		dragoon.Exit()
 		return
 	}
 
-	if strings.HasPrefix(m.Content, "!dra-start") {
-		g, err := s.State.Guild(m.GuildID)
-		if err != nil {
-			s.ChannelMessageSend(m.ChannelID, "Guildが取得できませんでした :cry:")
-			return
-		}
+	g, err := s.State.Guild(m.GuildID)
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, "Guildが取得できませんでした :cry:")
+		return
+	}
 
-		voiceChannelID, err := findTargetVoiceChannelID(g, m.Author.ID)
-		if err != nil {
-			s.ChannelMessageSend(m.ChannelID, "ボイスチャンネルが取得できませんでした :cry:")
-			return
-		}
+	voiceChannelID, err := findTargetVoiceChannelID(g, m.Author.ID)
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, "ボイスチャンネルが取得できませんでした :cry:")
+		return
+	}
 
-		s.ChannelMessageSend(m.ChannelID, "タイマーをセットしました :dragon_face:")
-		dragoon.SetTimer(s, g.ID, voiceChannelID)
+	if m.Content == "c" {
+		playSound(s, g.ID, voiceChannelID, chimeBuffer)
+	}
+
+	if m.Content == "g" {
+		playSound(s, g.ID, voiceChannelID, gongBuffer)
 	}
 }
 
@@ -124,15 +117,15 @@ func findTargetVoiceChannelID(g *discordgo.Guild, userID string) (string, error)
 }
 
 // loadSound attempts to load an encoded sound file from disk.
-func loadSound() error {
-
-	file, err := os.Open("gong.dca")
+func loadSound(filepath string) ([][]byte, error) {
+	file, err := os.Open(filepath)
 	if err != nil {
 		fmt.Println("Error opening dca file :", err)
-		return err
+		return nil, err
 	}
 
 	var opuslen int16
+	var buffer [][]byte
 
 	for {
 		// Read opus frame length from dca file.
@@ -142,14 +135,14 @@ func loadSound() error {
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			err := file.Close()
 			if err != nil {
-				return err
+				return nil, err
 			}
-			return nil
+			return buffer, err
 		}
 
 		if err != nil {
 			fmt.Println("Error reading from dca file :", err)
-			return err
+			return nil, err
 		}
 
 		// Read encoded pcm from dca file.
@@ -159,16 +152,16 @@ func loadSound() error {
 		// Should not be any end of file errors
 		if err != nil {
 			fmt.Println("Error reading from dca file :", err)
-			return err
+			return nil, err
 		}
 
-		// Append encoded pcm data to the buffer.
+		// Append encoded pcm data to the gongBuffer.
 		buffer = append(buffer, InBuf)
 	}
 }
 
-// playSound plays the current buffer to the provided channel.
-func playSound(s *discordgo.Session, guildID, channelID string) (err error) {
+// playSound plays the current gongBuffer to the provided channel.
+func playSound(s *discordgo.Session, guildID, channelID string, buffer [][]byte) (err error) {
 
 	// Join the provided voice channel.
 	vc, err := s.ChannelVoiceJoin(guildID, channelID, false, true)
@@ -183,7 +176,7 @@ func playSound(s *discordgo.Session, guildID, channelID string) (err error) {
 	// Start speaking.
 	vc.Speaking(true)
 
-	// Send the buffer data.
+	// Send the gongBuffer data.
 	for _, buff := range buffer {
 		vc.OpusSend <- buff
 	}
